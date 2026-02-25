@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tourismusdaten Graubünden: Ankünfte & Logiernächte</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #f8fafc;
+        }
+
+        /* Custom Scrollbar for Checkbox List */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* SVG Chart Styles */
+        .line-logiernachte {
+            fill: none;
+            stroke-width: 2.5px;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+
+        .line-ankunfte {
+            fill: none;
+            stroke-width: 2.5px;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+            stroke-dasharray: 6, 6;
+        }
+
+        .axis-label {
+            font-size: 12px;
+            fill: #64748b;
+        }
+
+        .axis path,
+        .axis line {
+            stroke: #cbd5e1;
+        }
+
+        .grid line {
+            stroke: #e2e8f0;
+            stroke-opacity: 0.7;
+            shape-rendering: crispEdges;
+        }
+
+        .grid path {
+            stroke-width: 0;
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: fixed;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-radius: 6px;
+            padding: 10px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            font-size: 13px;
+            z-index: 1000;
+            min-width: 200px;
+        }
+
+        .tooltip-color-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 6px;
+            border-radius: 2px;
+        }
+
+        .hover-line {
+            stroke: #94a3b8;
+            stroke-width: 1px;
+            stroke-dasharray: 4, 4;
+            pointer-events: none;
+        }
+
+        /* Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <header
+        class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shrink-0 shadow-sm z-10">
+        <div>
+            <h1 class="text-xl font-bold text-slate-900">Tourismus Graubünden</h1>
+            <p class="text-sm text-slate-500">Ankünfte und Logiernächte nach Region und Herkunftsland</p>
+        </div>
+        <div class="flex items-center space-x-4 text-sm bg-slate-50 px-4 py-2 rounded-md border border-slate-200">
+            <div class="flex items-center"><span class="w-6 h-0.5 bg-slate-400 mr-2"></span> Logiernächte (Total)</div>
+            <div class="flex items-center"><span
+                    class="w-6 h-0.5 border-t-2 border-dashed border-slate-400 mr-2"></span> Ankünfte</div>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden">
+        <!-- Sidebar for Filtering -->
+        <aside class="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 shadow-sm z-10 overflow-hidden">
+            <!-- Region Filter -->
+            <div class="flex flex-col h-1/2 border-b border-slate-200">
+                <div class="p-4 pb-2">
+                    <h2 class="font-semibold text-slate-800">Regionen filtern</h2>
+                    <div class="mt-2 flex gap-2">
+                        <button id="btnDeselectAllRegions"
+                            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors w-full">Alle
+                            abwählen</button>
+                        <button id="btnSelectAllRegions"
+                            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors w-full">Alle
+                            wählen</button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-4 pt-0" id="regionCheckboxes">
+                    <!-- Checkboxes will be injected here -->
+                </div>
+            </div>
+
+            <!-- Country Filter -->
+            <div class="flex flex-col h-1/2">
+                <div class="p-4 pb-2">
+                    <h2 class="font-semibold text-slate-800">Länder filtern</h2>
+                    <input type="text" id="searchInput" placeholder="Land suchen..."
+                        class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm mt-1">
+
+                    <div class="mt-2 flex gap-2">
+                        <button id="btnDeselectAll"
+                            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors w-full">Alle
+                            abwählen</button>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-4 pt-0" id="countryCheckboxes">
+                    <!-- Checkboxes will be injected here -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- Chart Area -->
+        <section class="flex-1 relative bg-slate-50 flex flex-col overflow-hidden">
+            <!-- Loading overlay -->
+            <div id="loadingOverlay"
+                class="absolute inset-0 bg-white/80 z-50 flex flex-col items-center justify-center">
+                <div class="loader mb-4"></div>
+                <p class="text-slate-600 font-medium">Daten werden geladen und aggregiert...</p>
+                <p class="text-slate-400 text-sm mt-1">Dies kann bei grossen Datensätzen einen Moment dauern.</p>
+            </div>
+
+            <!-- Error message overlay -->
+            <div id="errorOverlay"
+                class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center hidden">
+                <svg class="w-12 h-12 text-red-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <p class="text-slate-800 font-semibold text-lg" id="errorMsg">Fehler beim Laden der Daten.</p>
+                <button onclick="location.reload()"
+                    class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Neu laden</button>
+            </div>
+
+            <!-- Container for SVG small multiples -->
+            <div class="flex-1 w-full h-full overflow-y-auto custom-scrollbar p-6">
+                <div id="chartContainer" class="flex flex-col gap-6 w-full relative min-h-full"></div>
+            </div>
+
+            <!-- Tooltip -->
+            <div id="tooltip"></div>
+        </section>
+    </main>
+
+    <script>
+        // Data and configuration
+        const API_URL = "https://data.gr.ch/api/explore/v2.1/catalog/datasets/dvs_awt_econ_202503260/exports/json?lang=de&qv1=(date%3E%3D%222024-01-01%22)&timezone=Europe%2FZurich";
+
+        let rawData = [];
+        let cleanDataRaw = [];
+        let allDates = [];
+        let allCountries = [];
+        let allRegions = [];
+        let selectedCountries = new Set();
+        let selectedRegions = new Set();
+        let colorScale;
+
+        // German locale for D3
+        const de_CH = d3.timeFormatDefaultLocale({
+            "dateTime": "%A, der %e. %B %Y, %X",
+            "date": "%d.%m.%Y",
+            "time": "%H:%M:%S",
+            "periods": ["AM", "PM"],
+            "days": ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"],
+            "shortDays": ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"],
+            "months": ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+            "shortMonths": ["Jan", "Feb", "Mrz", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
+        });
+        const numberFormat = d3.formatLocale({
+            "decimal": ".",
+            "thousands": "'",
+            "grouping": [3],
+            "currency": ["CHF ", ""]
+        }).format(",d");
+
+        // UI Elements
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorMsg = document.getElementById('errorMsg');
+        const searchInput = document.getElementById('searchInput');
+        const countryCheckboxesContainer = document.getElementById('countryCheckboxes');
+        const btnDeselectAll = document.getElementById('btnDeselectAll');
+        const regionCheckboxesContainer = document.getElementById('regionCheckboxes');
+        const btnDeselectAllRegions = document.getElementById('btnDeselectAllRegions');
+        const btnSelectAllRegions = document.getElementById('btnSelectAllRegions');
+        const chartContainer = document.getElementById('chartContainer');
+        const tooltip = document.getElementById('tooltip');
+
+        // Main initialization
+        async function init() {
+            try {
+                // Fetch data
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                rawData = await response.json();
+
+                processData();
+                setupUI();
+                renderChart();
+
+                // Add resize listener
+                window.addEventListener('resize', debounce(renderChart, 250));
+
+                loadingOverlay.classList.add('hidden');
+            } catch (error) {
+                console.error("Data loading failed:", error);
+                loadingOverlay.classList.add('hidden');
+                errorOverlay.classList.remove('hidden');
+                errorMsg.textContent = "Fehler beim Laden der API: " + error.message;
+            }
+        }
+
+        // Process and aggregate data
+        function processData() {
+            // Flatten dataset (handling Opendatasoft v2 vs v1 schema variations)
+            cleanDataRaw = rawData.map(d => {
+                const item = d.fields ? d.fields : d;
+                return {
+                    dateStr: item.date,
+                    date: new Date(item.date),
+                    country: item.iso_lander_name,
+                    region: item.tourismusregion_sta,
+                    ankunfte: +item.ankunfte_hk || 0,
+                    logiernachte: +item.logiernachte_hk || 0
+                };
+            }).filter(d => d.dateStr && d.country && d.region && !isNaN(d.date.getTime()));
+
+            allCountries = Array.from(new Set(cleanDataRaw.map(d => d.country))).sort();
+            allRegions = Array.from(new Set(cleanDataRaw.map(d => d.region))).sort();
+            allDates = Array.from(new Set(cleanDataRaw.map(d => d.date.getTime()))).sort((a, b) => a - b).map(t => new Date(t));
+
+            // Default selection for Countries
+            const defaultSelections = ["Schweiz", "Deutschland", "Vereinigte Staaten", "Vereinigtes Königreich"];
+            if (selectedCountries.size === 0) {
+                allCountries.forEach(c => {
+                    if (defaultSelections.includes(c)) selectedCountries.add(c);
+                });
+                if (selectedCountries.size === 0 && allCountries.length > 0) {
+                    selectedCountries.add(allCountries[0]);
+                }
+            }
+
+            // Default selection for Regions (select all)
+            if (selectedRegions.size === 0) {
+                allRegions.forEach(r => selectedRegions.add(r));
+            }
+
+            // Create color scale (d3.schemeCategory10 is good for distinct lines)
+            colorScale = d3.scaleOrdinal(d3.schemeCategory10).domain(allCountries);
+        }
+
+        // Setup Sidebar UI
+        function setupUI() {
+            function renderCountryCheckboxes(filter = "") {
+                countryCheckboxesContainer.innerHTML = "";
+                const filtered = allCountries.filter(c => c.toLowerCase().includes(filter.toLowerCase()));
+
+                if (filtered.length === 0) {
+                    countryCheckboxesContainer.innerHTML = '<p class="text-sm text-slate-400">Keine Länder gefunden.</p>';
+                    return;
+                }
+
+                filtered.forEach(country => {
+                    const label = document.createElement('label');
+                    label.className = "flex items-center space-x-3 p-2 hover:bg-slate-50 rounded cursor-pointer transition-colors";
+
+                    const isChecked = selectedCountries.has(country);
+
+                    let colorInd = '';
+                    if (isChecked) {
+                        colorInd = `<span class="w-3 h-3 rounded-full shrink-0" style="background-color: ${colorScale(country)}"></span>`;
+                    } else {
+                        colorInd = `<span class="w-3 h-3 rounded-full border border-slate-300 shrink-0"></span>`;
+                    }
+
+                    label.innerHTML = `
+                        <input type="checkbox" class="hidden" value="${country}" ${isChecked ? 'checked' : ''}>
+                        ${colorInd}
+                        <span class="text-sm truncate select-none ${isChecked ? 'text-slate-900 font-medium' : 'text-slate-600'}">${country}</span>
+                    `;
+
+                    const checkbox = label.querySelector('input');
+                    checkbox.addEventListener('change', (e) => {
+                        if (e.target.checked) selectedCountries.add(country);
+                        else selectedCountries.delete(country);
+                        renderCountryCheckboxes(searchInput.value);
+                        renderChart();
+                    });
+
+                    countryCheckboxesContainer.appendChild(label);
+                });
+            }
+
+            function renderRegionCheckboxes() {
+                regionCheckboxesContainer.innerHTML = "";
+
+                allRegions.forEach(region => {
+                    const label = document.createElement('label');
+                    label.className = "flex items-center space-x-3 p-2 hover:bg-slate-50 rounded cursor-pointer transition-colors";
+
+                    const isChecked = selectedRegions.has(region);
+
+                    label.innerHTML = `
+                        <input type="checkbox" class="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" value="${region}" ${isChecked ? 'checked' : ''}>
+                        <span class="text-sm truncate select-none ${isChecked ? 'text-slate-900 font-medium' : 'text-slate-600'}">${region}</span>
+                    `;
+
+                    const checkbox = label.querySelector('input');
+                    checkbox.addEventListener('change', (e) => {
+                        if (e.target.checked) selectedRegions.add(region);
+                        else selectedRegions.delete(region);
+                        renderRegionCheckboxes();
+                        renderChart();
+                    });
+
+                    regionCheckboxesContainer.appendChild(label);
+                });
+            }
+
+            renderCountryCheckboxes();
+            renderRegionCheckboxes();
+
+            searchInput.addEventListener('input', (e) => {
+                renderCountryCheckboxes(e.target.value);
+            });
+
+            btnDeselectAll.addEventListener('click', () => {
+                selectedCountries.clear();
+                renderCountryCheckboxes(searchInput.value);
+                renderChart();
+            });
+
+            btnDeselectAllRegions.addEventListener('click', () => {
+                selectedRegions.clear();
+                renderRegionCheckboxes();
+                renderChart();
+            });
+
+            btnSelectAllRegions.addEventListener('click', () => {
+                allRegions.forEach(r => selectedRegions.add(r));
+                renderRegionCheckboxes();
+                renderChart();
+            });
+        }
+
+        // Draw Chart
+        function renderChart() {
+            // Clear existing
+            chartContainer.innerHTML = "";
+            if (selectedCountries.size === 0 || selectedRegions.size === 0) {
+                chartContainer.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-slate-400 mt-10">
+                        <svg class="w-10 h-10 mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <p>Bitte wählen Sie mindestens ein Land und eine Region aus.</p>
+                    </div>`;
+                return;
+            }
+
+            // Filter raw data
+            const filteredData = cleanDataRaw.filter(d =>
+                selectedCountries.has(d.country) && selectedRegions.has(d.region)
+            );
+
+            if (filteredData.length === 0) {
+                chartContainer.innerHTML = `
+                    <div class="h-full flex items-center justify-center text-slate-400 mt-10">
+                        Keine Daten für diese Kombination gefunden.
+                    </div>`;
+                return;
+            }
+
+            // Group by Region -> Country -> Date
+            const groupedByRegion = d3.rollup(filteredData,
+                v => ({
+                    ankunfte: d3.sum(v, d => d.ankunfte),
+                    logiernachte: d3.sum(v, d => d.logiernachte)
+                }),
+                d => d.region,
+                d => d.country,
+                d => d.date.getTime()
+            );
+
+            // Calculate global max for synchronized Y-axes across all small multiples
+            let globalMaxVal = 0;
+            const regionPlotData = new Map();
+
+            for (let [region, countryMap] of groupedByRegion.entries()) {
+                const plotData = [];
+                for (let [country, dateMap] of countryMap.entries()) {
+                    const values = Array.from(dateMap.entries()).map(([time, metrics]) => ({
+                        date: new Date(time),
+                        time: time,
+                        ankunfte: metrics.ankunfte,
+                        logiernachte: metrics.logiernachte
+                    })).sort((a, b) => a.time - b.time);
+
+                    plotData.push({ country, values });
+
+                    const localMax = d3.max(values, d => Math.max(d.ankunfte, d.logiernachte));
+                    if (localMax > globalMaxVal) globalMaxVal = localMax;
+                }
+                regionPlotData.set(region, plotData);
+            }
+
+            if (globalMaxVal === 0) globalMaxVal = 10; // Fallback to avoid NaN in scales
+
+            const sortedSelectedRegions = Array.from(selectedRegions).sort();
+
+            // Iterate and build faceted charts
+            sortedSelectedRegions.forEach(region => {
+                const plotData = regionPlotData.get(region) || [];
+                if (plotData.length === 0) return; // Skip rendering empty charts
+
+                // Create wrapper for the facet
+                const wrapper = document.createElement('div');
+                wrapper.className = "flex flex-col w-full h-[360px] shrink-0 border border-slate-200 rounded-lg p-4 bg-white shadow-sm";
+
+                const title = document.createElement('h3');
+                title.className = "text-[15px] font-semibold text-slate-800 mb-2 border-b border-slate-100 pb-1";
+                title.textContent = "Region: " + region;
+                wrapper.appendChild(title);
+
+                const svgContainer = document.createElement('div');
+                svgContainer.className = "flex-1 relative w-full h-full";
+                wrapper.appendChild(svgContainer);
+
+                chartContainer.appendChild(wrapper);
+
+                const width = svgContainer.clientWidth || chartContainer.clientWidth - 40;
+                const height = svgContainer.clientHeight || 280;
+
+                const margin = { top: 10, right: 30, bottom: 25, left: 60 };
+                const innerWidth = width - margin.left - margin.right;
+                const innerHeight = height - margin.top - margin.bottom;
+
+                const svg = d3.select(svgContainer).append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+                const g = svg.append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                // Scales
+                const xScale = d3.scaleTime()
+                    .domain(d3.extent(allDates))
+                    .range([0, innerWidth]);
+
+                const yScale = d3.scaleLinear()
+                    .domain([0, globalMaxVal * 1.05])
+                    .nice()
+                    .range([innerHeight, 0]);
+
+                // Axes
+                const xAxis = d3.axisBottom(xScale)
+                    .ticks(Math.min(innerWidth / 80, 10))
+                    .tickFormat(d3.timeFormat("%b %Y"));
+
+                const yAxis = d3.axisLeft(yScale)
+                    .ticks(Math.min(innerHeight / 40, 6))
+                    .tickFormat(d => {
+                        if (d >= 1000000) return d3.format(".1f")(d / 1000000) + "M";
+                        if (d >= 1000) return d3.format(".0f")(d / 1000) + "k";
+                        return d;
+                    });
+
+                // Gridlines
+                g.append("g")
+                    .attr("class", "grid")
+                    .call(d3.axisLeft(yScale).tickSize(-innerWidth).tickFormat(""));
+
+                g.append("g")
+                    .attr("class", "axis axis-x")
+                    .attr("transform", `translate(0,${innerHeight})`)
+                    .call(xAxis)
+                    .selectAll("text").attr("class", "axis-label");
+
+                g.append("g")
+                    .attr("class", "axis axis-y")
+                    .call(yAxis)
+                    .selectAll("text").attr("class", "axis-label");
+
+                // Line generators
+                const lineLogiernachte = d3.line()
+                    .defined(d => !isNaN(d.logiernachte) && d.logiernachte !== null)
+                    .x(d => xScale(d.date))
+                    .y(d => yScale(d.logiernachte))
+                    .curve(d3.curveMonotoneX);
+
+                const lineAnkunfte = d3.line()
+                    .defined(d => !isNaN(d.ankunfte) && d.ankunfte !== null)
+                    .x(d => xScale(d.date))
+                    .y(d => yScale(d.ankunfte))
+                    .curve(d3.curveMonotoneX);
+
+                // Draw lines
+                plotData.forEach(series => {
+                    const color = colorScale(series.country);
+                    g.append("path")
+                        .datum(series.values)
+                        .attr("class", "line-logiernachte")
+                        .attr("stroke", color)
+                        .attr("d", lineLogiernachte);
+
+                    g.append("path")
+                        .datum(series.values)
+                        .attr("class", "line-ankunfte")
+                        .attr("stroke", color)
+                        .attr("d", lineAnkunfte);
+                });
+
+                // Interactive Tooltip Layer (per chart)
+                const hoverLine = g.append("line")
+                    .attr("class", "hover-line")
+                    .attr("y1", 0)
+                    .attr("y2", innerHeight)
+                    .style("opacity", 0);
+
+                const tooltipRect = g.append("rect")
+                    .attr("width", innerWidth)
+                    .attr("height", innerHeight)
+                    .attr("fill", "transparent")
+                    .style("cursor", "crosshair");
+
+                tooltipRect.on("mousemove", function (event) {
+                    const [mouseX] = d3.pointer(event);
+                    const xDate = xScale.invert(mouseX);
+
+                    const bisect = d3.bisector(d => d).left;
+                    const idx = bisect(allDates, xDate);
+                    const d0 = allDates[idx - 1];
+                    const d1 = allDates[idx];
+
+                    let closestDate;
+                    if (!d0) closestDate = d1;
+                    else if (!d1) closestDate = d0;
+                    else closestDate = xDate - d0 > d1 - xDate ? d1 : d0;
+
+                    if (!closestDate) return;
+
+                    const hoverX = xScale(closestDate);
+
+                    hoverLine
+                        .attr("x1", hoverX)
+                        .attr("x2", hoverX)
+                        .style("opacity", 1);
+
+                    let tooltipHtml = `
+                        <div class="font-semibold text-slate-800 border-b border-slate-200 pb-2 mb-2">
+                            ${region} <br>
+                            <span class="text-xs font-normal text-slate-500">${d3.timeFormat("%B %Y")(closestDate)}</span>
+                        </div>`;
+
+                    let pointsForDate = [];
+                    plotData.forEach(series => {
+                        const point = series.values.find(p => p.time === closestDate.getTime());
+                        if (point) {
+                            pointsForDate.push({
+                                country: series.country,
+                                ankunfte: point.ankunfte,
+                                logiernachte: point.logiernachte,
+                                color: colorScale(series.country)
+                            });
+                        }
+                    });
+
+                    pointsForDate.sort((a, b) => b.logiernachte - a.logiernachte);
+
+                    pointsForDate.forEach(p => {
+                        tooltipHtml += `
+                            <div class="mb-2 last:mb-0">
+                                <div class="flex items-center text-sm font-medium text-slate-700 mb-0.5">
+                                    <span class="tooltip-color-box" style="background-color: ${p.color}"></span>
+                                    ${p.country}
+                                </div>
+                                <div class="pl-4 grid grid-cols-[80px_1fr] text-xs">
+                                    <span class="text-slate-500">Logiernächte:</span>
+                                    <span class="text-right font-semibold text-slate-800">${numberFormat(p.logiernachte)}</span>
+                                    <span class="text-slate-500">Ankünfte:</span>
+                                    <span class="text-right font-medium text-slate-600">${numberFormat(p.ankunfte)}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    if (pointsForDate.length === 0) {
+                        tooltipHtml += `<div class="text-slate-500 text-sm">Keine Daten verfügbar</div>`;
+                    }
+
+                    tooltip.innerHTML = tooltipHtml;
+
+                    const tooltipNode = tooltip;
+                    let topOffset = event.clientY + 20;
+                    let leftOffset = event.clientX - tooltipNode.offsetWidth - 20;
+
+                    if (leftOffset < 0) leftOffset = event.clientX + 20;
+                    if (topOffset + tooltipNode.offsetHeight > window.innerHeight) {
+                        topOffset = event.clientY - tooltipNode.offsetHeight - 20;
+                    }
+
+                    tooltip.style.left = leftOffset + "px";
+                    tooltip.style.top = topOffset + "px";
+                    tooltip.style.opacity = 1;
+                });
+
+                tooltipRect.on("mouseleave", function () {
+                    hoverLine.style("opacity", 0);
+                    tooltip.style.opacity = 0;
+                });
+            });
+        }
+
+        // Utility: Debounce for window resize
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Start the application
+        init();
+
+    </script>
+</body>
+
+</html>
